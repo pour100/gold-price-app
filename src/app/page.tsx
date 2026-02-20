@@ -1,65 +1,356 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
 
-export default function Home() {
+type ViewMode = "live" | "history";
+type RangeId = "1mo" | "6mo" | "1y" | "10y" | "20y";
+
+type SpotData = {
+  domesticKrwPerGram: number;
+  goldPriceUsdPerOunce: number;
+  usdKrw: number;
+  previousDomesticKrwPerGram: number;
+  changePercent: number;
+  updatedAt: string;
+  source: string;
+};
+
+type HistoryPoint = {
+  ts: number;
+  usdPerOunce: number;
+  usdKrw: number;
+  krwPerGram: number;
+};
+
+type HistoryData = {
+  range: RangeId;
+  points: HistoryPoint[];
+  source: string;
+};
+
+const ranges: Array<{ id: RangeId; label: string }> = [
+  { id: "1mo", label: "1개월" },
+  { id: "6mo", label: "6개월" },
+  { id: "1y", label: "1년" },
+  { id: "10y", label: "10년" },
+  { id: "20y", label: "20년" },
+];
+
+const refreshOptions = [1, 3, 5, 10];
+
+function formatKrw(value: number): string {
+  return new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatIndex(value: number): string {
+  return value.toFixed(1);
+}
+
+function buildLinePath(values: number[], width: number, height: number, pad: number): string {
+  if (values.length === 0) {
+    return "";
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const innerWidth = width - pad * 2;
+  const innerHeight = height - pad * 2;
+
+  return values
+    .map((value, idx) => {
+      const x = pad + (idx / Math.max(values.length - 1, 1)) * innerWidth;
+      const y = pad + ((max - value) / range) * innerHeight;
+      return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function buildAreaPath(values: number[], width: number, height: number, pad: number): string {
+  const line = buildLinePath(values, width, height, pad);
+  if (!line) {
+    return "";
+  }
+
+  const leftX = pad;
+  const rightX = width - pad;
+  const bottomY = height - pad;
+  return `${line} L ${rightX} ${bottomY} L ${leftX} ${bottomY} Z`;
+}
+
+function TrendChart({ points }: { points: HistoryPoint[] }) {
+  const width = 960;
+  const height = 360;
+  const pad = 18;
+  const first = points[0];
+  const domesticIndex = points.map((p) => (p.krwPerGram / first.krwPerGram) * 100);
+  const globalIndex = points.map((p) => (p.usdPerOunce / first.usdPerOunce) * 100);
+
+  const domesticPath = buildLinePath(domesticIndex, width, height, pad);
+  const globalPath = buildLinePath(globalIndex, width, height, pad);
+  const areaPath = buildAreaPath(domesticIndex, width, height, pad);
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className={styles.chartWrap}>
+      <svg viewBox={`0 0 ${width} ${height}`} className={styles.chart} role="img" aria-label="금 가격 추이 차트">
+        <defs>
+          <linearGradient id="domesticFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(255, 198, 56, 0.6)" />
+            <stop offset="100%" stopColor="rgba(255, 198, 56, 0)" />
+          </linearGradient>
+        </defs>
+
+        <path d={areaPath} fill="url(#domesticFill)" />
+        <path d={globalPath} className={styles.lineGlobal} />
+        <path d={domesticPath} className={styles.lineDomestic} />
+      </svg>
+
+      <div className={styles.chartLegend}>
+        <span className={styles.legendItem}>
+          <span className={`${styles.dot} ${styles.dotDomestic}`} />
+          국내(원화) 지수 {formatIndex(domesticIndex[domesticIndex.length - 1])}
+        </span>
+        <span className={styles.legendItem}>
+          <span className={`${styles.dot} ${styles.dotGlobal}`} />
+          국제(달러) 지수 {formatIndex(globalIndex[globalIndex.length - 1])}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const [mode, setMode] = useState<ViewMode>("live");
+  const [refreshSec, setRefreshSec] = useState<number>(3);
+  const [range, setRange] = useState<RangeId>("1mo");
+  const [spot, setSpot] = useState<SpotData | null>(null);
+  const [history, setHistory] = useState<HistoryData | null>(null);
+  const [spotLoading, setSpotLoading] = useState<boolean>(true);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(true);
+  const [spotError, setSpotError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const fetchSpot = useCallback(async () => {
+    try {
+      const response = await fetch("/api/spot", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("실시간 데이터를 불러오지 못했습니다.");
+      }
+      const payload = (await response.json()) as SpotData;
+      setSpot(payload);
+      setSpotError(null);
+    } catch (error) {
+      setSpotError(error instanceof Error ? error.message : "실시간 데이터를 불러오지 못했습니다.");
+    } finally {
+      setSpotLoading(false);
+    }
+  }, []);
+
+  const fetchHistory = useCallback(async (selectedRange: RangeId) => {
+    try {
+      setHistoryLoading(true);
+      const response = await fetch(`/api/history?range=${selectedRange}`, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("히스토리 데이터를 불러오지 못했습니다.");
+      }
+      const payload = (await response.json()) as HistoryData;
+      setHistory(payload);
+      setHistoryError(null);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "히스토리 데이터를 불러오지 못했습니다.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSpot();
+    const timer = window.setInterval(fetchSpot, refreshSec * 1000);
+    return () => window.clearInterval(timer);
+  }, [fetchSpot, refreshSec]);
+
+  useEffect(() => {
+    void fetchHistory(range);
+  }, [fetchHistory, range]);
+
+  const stats = useMemo(() => {
+    if (!history?.points.length) {
+      return null;
+    }
+
+    const values = history.points.map((p) => p.krwPerGram);
+    const first = history.points[0];
+    const last = history.points[history.points.length - 1];
+    const high = Math.max(...values);
+    const low = Math.min(...values);
+    const periodChange = ((last.krwPerGram - first.krwPerGram) / first.krwPerGram) * 100;
+
+    return {
+      high,
+      low,
+      latest: last.krwPerGram,
+      periodChange,
+      from: new Date(first.ts * 1000).toLocaleDateString("ko-KR"),
+      to: new Date(last.ts * 1000).toLocaleDateString("ko-KR"),
+    };
+  }, [history]);
+
+  const deltaSign = (spot?.changePercent ?? 0) >= 0 ? "+" : "";
+
+  return (
+    <div className={styles.shell}>
+      <div className={styles.noise} />
+      <main className={styles.app}>
+        <header className={styles.header}>
+          <p className={styles.kicker}>Gold Pulse KR</p>
+          <h1>실시간 금 가격 대시보드</h1>
+          <p className={styles.subtitle}>국내 1g 기준 추정가와 국제 금 시세를 동시에 확인</p>
+        </header>
+
+        <nav className={styles.modeTabs}>
+          <button
+            type="button"
+            className={mode === "live" ? `${styles.tabBtn} ${styles.active}` : styles.tabBtn}
+            onClick={() => setMode("live")}
           >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            실시간
+          </button>
+          <button
+            type="button"
+            className={mode === "history" ? `${styles.tabBtn} ${styles.active}` : styles.tabBtn}
+            onClick={() => setMode("history")}
           >
-            Documentation
-          </a>
-        </div>
+            과거 추이
+          </button>
+        </nav>
+
+        {mode === "live" && (
+          <section className={styles.panel}>
+            <div className={styles.refreshTabs}>
+              {refreshOptions.map((sec) => (
+                <button
+                  type="button"
+                  key={sec}
+                  className={refreshSec === sec ? `${styles.pill} ${styles.pillActive}` : styles.pill}
+                  onClick={() => setRefreshSec(sec)}
+                >
+                  {sec}초
+                </button>
+              ))}
+            </div>
+
+            {spotError && <p className={styles.error}>{spotError}</p>}
+
+            {spotLoading && !spot ? (
+              <p className={styles.loading}>실시간 시세 불러오는 중...</p>
+            ) : (
+              spot && (
+                <>
+                  <div className={styles.priceHero}>
+                    <p>국내 추정 금 가격</p>
+                    <h2>
+                      {formatKrw(spot.domesticKrwPerGram)}
+                      <span>원 / g</span>
+                    </h2>
+                    <p className={styles.delta}>
+                      {deltaSign}
+                      {spot.changePercent.toFixed(2)}% (전일 대비)
+                    </p>
+                  </div>
+
+                  <div className={styles.metrics}>
+                    <article className={styles.metricCard}>
+                      <p>국제 금 가격</p>
+                      <strong>${formatUsd(spot.goldPriceUsdPerOunce)} / oz</strong>
+                    </article>
+                    <article className={styles.metricCard}>
+                      <p>원/달러</p>
+                      <strong>{formatUsd(spot.usdKrw)} KRW</strong>
+                    </article>
+                    <article className={styles.metricCard}>
+                      <p>환산식</p>
+                      <strong>(국제 금 x 환율) / 31.1035</strong>
+                    </article>
+                  </div>
+
+                  <p className={styles.updated}>
+                    마지막 갱신: {new Date(spot.updatedAt).toLocaleString("ko-KR", { hour12: false })}
+                  </p>
+                </>
+              )
+            )}
+          </section>
+        )}
+
+        {mode === "history" && (
+          <section className={styles.panel}>
+            <div className={styles.rangeTabs}>
+              {ranges.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={range === item.id ? `${styles.pill} ${styles.pillActive}` : styles.pill}
+                  onClick={() => setRange(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {historyError && <p className={styles.error}>{historyError}</p>}
+
+            {historyLoading ? (
+              <p className={styles.loading}>기간별 데이터를 계산 중...</p>
+            ) : (
+              history &&
+              history.points.length > 2 && (
+                <>
+                  <TrendChart points={history.points} />
+
+                  {stats && (
+                    <div className={styles.statsGrid}>
+                      <article className={styles.statCard}>
+                        <p>최신 국내 1g</p>
+                        <strong>{formatKrw(stats.latest)}원</strong>
+                      </article>
+                      <article className={styles.statCard}>
+                        <p>기간 상승률</p>
+                        <strong>{stats.periodChange.toFixed(2)}%</strong>
+                      </article>
+                      <article className={styles.statCard}>
+                        <p>기간 최고가</p>
+                        <strong>{formatKrw(stats.high)}원</strong>
+                      </article>
+                      <article className={styles.statCard}>
+                        <p>기간 최저가</p>
+                        <strong>{formatKrw(stats.low)}원</strong>
+                      </article>
+                    </div>
+                  )}
+
+                  <p className={styles.updated}>
+                    조회 구간: {stats?.from} ~ {stats?.to}
+                  </p>
+                </>
+              )
+            )}
+          </section>
+        )}
+
+        <footer className={styles.footer}>
+          <span>Source: Yahoo Finance (GC=F, KRW=X)</span>
+          <span>모바일 최적화 UI</span>
+        </footer>
       </main>
     </div>
   );
