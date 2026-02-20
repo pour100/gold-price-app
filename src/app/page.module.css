@@ -118,40 +118,61 @@
   border-color: transparent;
 }
 
-.priceHero {
-  border-radius: 16px;
-  padding: 16px;
+.compareGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin-bottom: 12px;
-  background: linear-gradient(140deg, rgba(255, 209, 94, 0.18) 0%, rgba(255, 178, 61, 0.06) 100%);
-  border: 1px solid rgba(255, 212, 112, 0.35);
 }
 
-.priceHero p {
-  color: #d8e0ef;
-  font-size: 0.84rem;
+.compareCard {
+  border-radius: 14px;
+  padding: 14px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
-.priceHero h2 {
+.compareCardDomestic {
+  background: linear-gradient(145deg, rgba(255, 210, 96, 0.2) 0%, rgba(255, 166, 54, 0.08) 100%);
+  border-color: rgba(255, 210, 96, 0.36);
+}
+
+.compareCardGlobal {
+  background: linear-gradient(145deg, rgba(120, 200, 255, 0.2) 0%, rgba(56, 133, 196, 0.1) 100%);
+  border-color: rgba(120, 200, 255, 0.3);
+}
+
+.compareLabel {
+  color: #d4dceb;
+  font-size: 0.78rem;
+}
+
+.compareValue {
   margin-top: 6px;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
   font-family: var(--font-space-grotesk), sans-serif;
-  color: #ffe59d;
-  font-size: clamp(1.6rem, 8vw, 2.56rem);
-  letter-spacing: -0.02em;
+  font-size: clamp(1.12rem, 5.2vw, 1.8rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #f8fbff;
 }
 
-.priceHero h2 span {
-  font-size: 0.8rem;
-  color: #c9d2e1;
+.compareUnit {
+  margin-top: 4px;
+  color: #c7d1e4;
+  font-size: 0.74rem;
+}
+
+.compareSub {
+  margin-top: 8px;
+  color: #b9c7dc;
+  font-size: 0.72rem;
 }
 
 .delta {
   margin-top: 10px;
   font-family: var(--font-space-grotesk), sans-serif;
-  color: #ffd77f;
+  color: #ffe08d;
   font-weight: 700;
+  font-size: 0.8rem;
 }
 
 .metrics {

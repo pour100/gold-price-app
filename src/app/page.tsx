@@ -38,6 +38,7 @@ const ranges: Array<{ id: RangeId; label: string }> = [
 ];
 
 const refreshOptions = [1, 3, 5, 10];
+const OUNCE_TO_GRAM = 31.1034768;
 
 function formatKrw(value: number): string {
   return new Intl.NumberFormat("ko-KR", {
@@ -256,16 +257,25 @@ export default function Home() {
             ) : (
               spot && (
                 <>
-                  <div className={styles.priceHero}>
-                    <p>국내 추정 금 가격</p>
-                    <h2>
-                      {formatKrw(spot.domesticKrwPerGram)}
-                      <span>원 / g</span>
-                    </h2>
-                    <p className={styles.delta}>
-                      {deltaSign}
-                      {spot.changePercent.toFixed(2)}% (전일 대비)
-                    </p>
+                  <div className={styles.compareGrid}>
+                    <article className={`${styles.compareCard} ${styles.compareCardDomestic}`}>
+                      <p className={styles.compareLabel}>국내 금값</p>
+                      <h2 className={styles.compareValue}>{formatKrw(spot.domesticKrwPerGram)}</h2>
+                      <p className={styles.compareUnit}>원 / g</p>
+                      <p className={styles.delta}>
+                        {deltaSign}
+                        {spot.changePercent.toFixed(2)}% (전일 대비)
+                      </p>
+                    </article>
+
+                    <article className={`${styles.compareCard} ${styles.compareCardGlobal}`}>
+                      <p className={styles.compareLabel}>국제 금값 (원화 환산)</p>
+                      <h2 className={styles.compareValue}>
+                        {formatKrw((spot.goldPriceUsdPerOunce * spot.usdKrw) / OUNCE_TO_GRAM)}
+                      </h2>
+                      <p className={styles.compareUnit}>원 / g</p>
+                      <p className={styles.compareSub}>USD/oz x 환율 / 31.1035</p>
+                    </article>
                   </div>
 
                   <div className={styles.metrics}>
