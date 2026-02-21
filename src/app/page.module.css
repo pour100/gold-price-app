@@ -93,7 +93,6 @@
   animation: fadeUp 280ms ease-out;
 }
 
-.refreshTabs,
 .rangeTabs {
   display: flex;
   flex-wrap: wrap;
@@ -153,6 +152,10 @@
   line-height: 1.1;
   letter-spacing: -0.01em;
   color: #f8fbff;
+}
+
+.valueFlash {
+  animation: valueFlash 520ms ease-out;
 }
 
 .compareUnit {
@@ -317,6 +320,24 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes valueFlash {
+  0% {
+    opacity: 0.6;
+    transform: translateY(2px) scale(0.985);
+    filter: brightness(0.88);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02);
+    filter: brightness(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: brightness(1);
   }
 }
 

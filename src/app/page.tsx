@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 
 type ViewMode = "live" | "history";
@@ -37,8 +37,8 @@ const ranges: Array<{ id: RangeId; label: string }> = [
   { id: "20y", label: "20년" },
 ];
 
-const refreshOptions = [1, 3, 5, 10];
 const OUNCE_TO_GRAM = 31.1034768;
+const AUTO_REFRESH_MS = 3000;
 
 function formatKrw(value: number): string {
   return new Intl.NumberFormat("ko-KR", {
@@ -132,7 +132,6 @@ function TrendChart({ points }: { points: HistoryPoint[] }) {
 
 export default function Home() {
   const [mode, setMode] = useState<ViewMode>("live");
-  const [refreshSec, setRefreshSec] = useState<number>(3);
   const [range, setRange] = useState<RangeId>("1mo");
   const [spot, setSpot] = useState<SpotData | null>(null);
   const [history, setHistory] = useState<HistoryData | null>(null);
@@ -140,6 +139,9 @@ export default function Home() {
   const [historyLoading, setHistoryLoading] = useState<boolean>(true);
   const [spotError, setSpotError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [domesticFlashKey, setDomesticFlashKey] = useState<number>(0);
+  const [globalFlashKey, setGlobalFlashKey] = useState<number>(0);
+  const prevSpotRef = useRef<SpotData | null>(null);
 
   const fetchSpot = useCallback(async () => {
     try {
@@ -148,6 +150,22 @@ export default function Home() {
         throw new Error("실시간 데이터를 불러오지 못했습니다.");
       }
       const payload = (await response.json()) as SpotData;
+      const prevSpot = prevSpotRef.current;
+
+      if (prevSpot) {
+        const prevGlobalKrwPerGram = (prevSpot.goldPriceUsdPerOunce * prevSpot.usdKrw) / OUNCE_TO_GRAM;
+        const nextGlobalKrwPerGram = (payload.goldPriceUsdPerOunce * payload.usdKrw) / OUNCE_TO_GRAM;
+
+        if (Math.abs(payload.domesticKrwPerGram - prevSpot.domesticKrwPerGram) >= 0.01) {
+          setDomesticFlashKey((current) => current + 1);
+        }
+
+        if (Math.abs(nextGlobalKrwPerGram - prevGlobalKrwPerGram) >= 0.01) {
+          setGlobalFlashKey((current) => current + 1);
+        }
+      }
+
+      prevSpotRef.current = payload;
       setSpot(payload);
       setSpotError(null);
     } catch (error) {
@@ -176,9 +194,9 @@ export default function Home() {
 
   useEffect(() => {
     fetchSpot();
-    const timer = window.setInterval(fetchSpot, refreshSec * 1000);
+    const timer = window.setInterval(fetchSpot, AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [fetchSpot, refreshSec]);
+  }, [fetchSpot]);
 
   useEffect(() => {
     void fetchHistory(range);
@@ -215,7 +233,7 @@ export default function Home() {
         <header className={styles.header}>
           <p className={styles.kicker}>Gold Pulse KR</p>
           <h1>실시간 금 가격 대시보드</h1>
-          <p className={styles.subtitle}>국내 1g 기준 추정가와 국제 금 시세를 동시에 확인</p>
+          <p className={styles.subtitle}>국내 금값과 국제 금값(원화 환산)을 동시에 확인</p>
         </header>
 
         <nav className={styles.modeTabs}>
@@ -237,30 +255,20 @@ export default function Home() {
 
         {mode === "live" && (
           <section className={styles.panel}>
-            <div className={styles.refreshTabs}>
-              {refreshOptions.map((sec) => (
-                <button
-                  type="button"
-                  key={sec}
-                  className={refreshSec === sec ? `${styles.pill} ${styles.pillActive}` : styles.pill}
-                  onClick={() => setRefreshSec(sec)}
-                >
-                  {sec}초
-                </button>
-              ))}
-            </div>
 
             {spotError && <p className={styles.error}>{spotError}</p>}
 
             {spotLoading && !spot ? (
-              <p className={styles.loading}>실시간 시세 불러오는 중...</p>
+              <p className={styles.loading}>실시간 시세를 불러오는 중...</p>
             ) : (
               spot && (
                 <>
                   <div className={styles.compareGrid}>
                     <article className={`${styles.compareCard} ${styles.compareCardDomestic}`}>
                       <p className={styles.compareLabel}>국내 금값</p>
-                      <h2 className={styles.compareValue}>{formatKrw(spot.domesticKrwPerGram)}</h2>
+                      <h2 key={`domestic-${domesticFlashKey}`} className={`${styles.compareValue} ${styles.valueFlash}`}>
+                        {formatKrw(spot.domesticKrwPerGram)}
+                      </h2>
                       <p className={styles.compareUnit}>원 / g</p>
                       <p className={styles.delta}>
                         {deltaSign}
@@ -270,7 +278,7 @@ export default function Home() {
 
                     <article className={`${styles.compareCard} ${styles.compareCardGlobal}`}>
                       <p className={styles.compareLabel}>국제 금값 (원화 환산)</p>
-                      <h2 className={styles.compareValue}>
+                      <h2 key={`global-${globalFlashKey}`} className={`${styles.compareValue} ${styles.valueFlash}`}>
                         {formatKrw((spot.goldPriceUsdPerOunce * spot.usdKrw) / OUNCE_TO_GRAM)}
                       </h2>
                       <p className={styles.compareUnit}>원 / g</p>
@@ -320,7 +328,7 @@ export default function Home() {
             {historyError && <p className={styles.error}>{historyError}</p>}
 
             {historyLoading ? (
-              <p className={styles.loading}>기간별 데이터를 계산 중...</p>
+              <p className={styles.loading}>기간별 데이터를 계산하는 중...</p>
             ) : (
               history &&
               history.points.length > 2 && (
@@ -365,3 +373,4 @@ export default function Home() {
     </div>
   );
 }
+
