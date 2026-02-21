@@ -233,7 +233,7 @@ export default function Home() {
         <header className={styles.header}>
           <p className={styles.kicker}>Gold Pulse KR</p>
           <h1>실시간 금 가격 대시보드</h1>
-          <p className={styles.subtitle}>국내 금값과 국제 금값(원화 환산)을 동시에 확인</p>
+          <p className={styles.subtitle}>국내 금 99.99_1kg 금현물(1g 환산)과 국제 금값을 동시에 확인</p>
         </header>
 
         <nav className={styles.modeTabs}>
@@ -265,11 +265,12 @@ export default function Home() {
                 <>
                   <div className={styles.compareGrid}>
                     <article className={`${styles.compareCard} ${styles.compareCardDomestic}`}>
-                      <p className={styles.compareLabel}>국내 금값</p>
+                      <p className={styles.compareLabel}>국내 금값 (금 99.99_1kg 금현물)</p>
                       <h2 key={`domestic-${domesticFlashKey}`} className={`${styles.compareValue} ${styles.valueFlash}`}>
                         {formatKrw(spot.domesticKrwPerGram)}
                       </h2>
                       <p className={styles.compareUnit}>원 / g</p>
+                      <p className={styles.compareSub}>참조: 금 99.99_1kg 금현물 기준</p>
                       <p className={styles.delta}>
                         {deltaSign}
                         {spot.changePercent.toFixed(2)}% (전일 대비)
@@ -366,7 +367,7 @@ export default function Home() {
         )}
 
         <footer className={styles.footer}>
-          <span>Source: {spot?.source ?? "Domestic: Naver Finance Gold (KRX). Global: Yahoo Finance (GC=F, KRW=X)."}</span>
+          <span>Source: {spot?.source ?? "Domestic: 금 99.99_1kg 금현물 (KRX, 1g 환산). Global: Yahoo Finance (GC=F, KRW=X)."}</span>
           <span>모바일 최적화 UI</span>
         </footer>
       </main>
