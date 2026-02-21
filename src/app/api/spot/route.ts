@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const GOLDKIMP_GOLD_URL = "https://goldkimp.com/wp-json/gk/gold/v1";
+const NAVER_GOLD_URL = "https://finance.naver.com/marketindex/goldDetail.naver";
 
 type YahooChartMeta = {
   regularMarketPrice?: number;
@@ -22,12 +22,6 @@ type YahooChartResponse = {
   chart?: {
     result?: YahooChartResult[];
   };
-};
-
-type GoldKimpGoldResponse = {
-  updated?: string;
-  header?: string[];
-  rows?: Array<Array<string | number>>;
 };
 
 type DomesticGoldSnapshot = {
@@ -56,17 +50,23 @@ function toIsoFromKst(value: string | undefined): string | null {
     return null;
   }
 
-  const isoMatch = value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
-  if (isoMatch) {
-    return value;
-  }
-
-  const match = value.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+  const match = value.match(/(\d{4})[.-](\d{2})[.-](\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!match) {
     return null;
   }
 
-  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+09:00`;
+  const second = match[6] ?? "00";
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${second}+09:00`;
+}
+
+function stripTags(input: string): string {
+  return input.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function parseNumber(input: string): number | null {
+  const normalized = input.replace(/,/g, "").trim();
+  const value = Number.parseFloat(normalized);
+  return Number.isFinite(value) ? value : null;
 }
 
 async function fetchChart(symbol: string, range: string, interval: string): Promise<YahooChartResult> {
@@ -95,51 +95,56 @@ async function fetchChart(symbol: string, range: string, interval: string): Prom
 }
 
 async function fetchDomesticGoldSnapshot(): Promise<DomesticGoldSnapshot> {
-  const response = await fetch(GOLDKIMP_GOLD_URL, {
+  const response = await fetch(NAVER_GOLD_URL, {
     cache: "no-store",
     headers: {
       "User-Agent": "Mozilla/5.0",
-      Accept: "application/json, text/plain, */*",
+      Accept: "text/html,application/xhtml+xml",
     },
   });
 
   if (!response.ok) {
-    throw new Error(`Gold reference request failed (${response.status})`);
+    throw new Error(`Naver gold request failed (${response.status})`);
   }
 
-  const data = (await response.json()) as GoldKimpGoldResponse;
-  const headers = data.header ?? [];
-  const rows = data.rows ?? [];
-  const krxIndex = headers.indexOf("krxkrw");
+  const html = await response.text();
+  const todayBlock = html.match(/<p class="no_today">([\s\S]*?)<\/p>/)?.[1];
+  const todayEm = todayBlock?.match(/<em[^>]*>([\s\S]*?)<\/em>/)?.[1];
+  const todayText = todayEm ? stripTags(todayEm).replace(/[^0-9.,-]/g, "") : "";
 
-  if (krxIndex < 0 || rows.length === 0) {
-    throw new Error("Failed to parse 금 99.99_1kg 금현물 reference price");
+  const rawPrice = parseNumber(todayText);
+  if (rawPrice === null) {
+    throw new Error("Failed to parse domestic gold reference price");
   }
 
-  const latestRow = rows[rows.length - 1];
-  const previousRow = rows.length > 1 ? rows[rows.length - 2] : rows[rows.length - 1];
-
-  const rawPrice = Number(latestRow?.[krxIndex]);
-  const rawPrevious = Number(previousRow?.[krxIndex]);
-  if (!Number.isFinite(rawPrice) || !Number.isFinite(rawPrevious)) {
-    throw new Error("Invalid gold reference values");
-  }
-
-  // Some feeds can carry kg-based price; convert to 1g when required.
+  // Keep explicit kg->g conversion in case upstream feed switches to kg-denominated values.
   const needsKgToGram = rawPrice > 1_000_000;
   const domesticKrwPerGram = needsKgToGram ? rawPrice / 1000 : rawPrice;
-  const previousDomesticKrwPerGram = needsKgToGram ? rawPrevious / 1000 : rawPrevious;
 
-  const changePercent =
-    previousDomesticKrwPerGram !== 0
-      ? ((domesticKrwPerGram - previousDomesticKrwPerGram) / previousDomesticKrwPerGram) * 100
-      : 0;
+  const exdayBlock = html.match(/<p class="no_exday">([\s\S]*?)<\/p>/)?.[1] ?? "";
+  const emMatches = [...exdayBlock.matchAll(/<em[^>]*>([\s\S]*?)<\/em>/g)];
+  const percentText = emMatches[1]?.[1] ? stripTags(emMatches[1][1]) : "";
+  const percentValueMatch = percentText.match(/([0-9]+(?:\.[0-9]+)?)/);
+  const rawPercent = percentValueMatch ? Number.parseFloat(percentValueMatch[1]) : 0;
+
+  const isDown = /class="ico\s+down"/.test(exdayBlock);
+  const isUp = /class="ico\s+up"/.test(exdayBlock);
+  const sign = isDown ? -1 : isUp ? 1 : 1;
+  const changePercent = Number.isFinite(rawPercent) ? sign * rawPercent : 0;
+
+  let previousDomesticKrwPerGram =
+    changePercent === -100 ? domesticKrwPerGram : domesticKrwPerGram / (1 + changePercent / 100);
+  if (!Number.isFinite(previousDomesticKrwPerGram) || previousDomesticKrwPerGram <= 0) {
+    previousDomesticKrwPerGram = domesticKrwPerGram;
+  }
+
+  const dateText = html.match(/<span class="date">([^<]+)<\/span>/)?.[1]?.trim();
 
   return {
     domesticKrwPerGram,
     changePercent,
     previousDomesticKrwPerGram,
-    updatedAt: toIsoFromKst(data.updated),
+    updatedAt: toIsoFromKst(dateText),
   };
 }
 
@@ -179,7 +184,7 @@ export async function GET() {
         previousDomesticKrwPerGram: domesticGold.previousDomesticKrwPerGram,
         changePercent: domesticGold.changePercent,
         updatedAt,
-        source: "Domestic: 금 99.99_1kg 금현물 (KRX, 1g 환산). Global: Yahoo Finance (GC=F, KRW=X).",
+        source: "Domestic: Naver Finance 금 99.99_1kg 금현물 (KRX, 1g 환산). Global: Yahoo Finance (GC=F, KRW=X).",
       },
       {
         headers: {
