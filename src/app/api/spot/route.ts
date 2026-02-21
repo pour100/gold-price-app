@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const GOLDKIMP_SIDEBAR_URL = "https://goldkimp.com/wp-json/gk/v1/sidebar";
+const GOLDKIMP_GOLD_URL = "https://goldkimp.com/wp-json/gk/gold/v1";
 
 type YahooChartMeta = {
   regularMarketPrice?: number;
@@ -24,17 +24,10 @@ type YahooChartResponse = {
   };
 };
 
-type GoldKimpSidebarResponse = {
-  meta?: {
-    updated_at_kst?: string;
-  };
-  metal?: {
-    krx_gold?: {
-      price?: number;
-      delta?: number;
-      change_pct?: number;
-    };
-  };
+type GoldKimpGoldResponse = {
+  updated?: string;
+  header?: string[];
+  rows?: Array<Array<string | number>>;
 };
 
 type DomesticGoldSnapshot = {
@@ -61,6 +54,11 @@ function getLastValidNumber(values: Array<number | null> | undefined): number | 
 function toIsoFromKst(value: string | undefined): string | null {
   if (!value) {
     return null;
+  }
+
+  const isoMatch = value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+  if (isoMatch) {
+    return value;
   }
 
   const match = value.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
@@ -97,7 +95,7 @@ async function fetchChart(symbol: string, range: string, interval: string): Prom
 }
 
 async function fetchDomesticGoldSnapshot(): Promise<DomesticGoldSnapshot> {
-  const response = await fetch(GOLDKIMP_SIDEBAR_URL, {
+  const response = await fetch(GOLDKIMP_GOLD_URL, {
     cache: "no-store",
     headers: {
       "User-Agent": "Mozilla/5.0",
@@ -109,32 +107,39 @@ async function fetchDomesticGoldSnapshot(): Promise<DomesticGoldSnapshot> {
     throw new Error(`Gold reference request failed (${response.status})`);
   }
 
-  const data = (await response.json()) as GoldKimpSidebarResponse;
-  const rawPrice = data.metal?.krx_gold?.price;
-  const rawDelta = data.metal?.krx_gold?.delta ?? 0;
-  const rawChangePercent = data.metal?.krx_gold?.change_pct ?? 0;
+  const data = (await response.json()) as GoldKimpGoldResponse;
+  const headers = data.header ?? [];
+  const rows = data.rows ?? [];
+  const krxIndex = headers.indexOf("krxkrw");
 
-  if (typeof rawPrice !== "number" || !Number.isFinite(rawPrice)) {
+  if (krxIndex < 0 || rows.length === 0) {
     throw new Error("Failed to parse 금 99.99_1kg 금현물 reference price");
+  }
+
+  const latestRow = rows[rows.length - 1];
+  const previousRow = rows.length > 1 ? rows[rows.length - 2] : rows[rows.length - 1];
+
+  const rawPrice = Number(latestRow?.[krxIndex]);
+  const rawPrevious = Number(previousRow?.[krxIndex]);
+  if (!Number.isFinite(rawPrice) || !Number.isFinite(rawPrevious)) {
+    throw new Error("Invalid gold reference values");
   }
 
   // Some feeds can carry kg-based price; convert to 1g when required.
   const needsKgToGram = rawPrice > 1_000_000;
   const domesticKrwPerGram = needsKgToGram ? rawPrice / 1000 : rawPrice;
-  const deltaPerGram = needsKgToGram ? rawDelta / 1000 : rawDelta;
-  const changePercent = Number.isFinite(rawChangePercent) ? rawChangePercent : 0;
+  const previousDomesticKrwPerGram = needsKgToGram ? rawPrevious / 1000 : rawPrevious;
 
-  let previousDomesticKrwPerGram = domesticKrwPerGram - deltaPerGram;
-  if (!(previousDomesticKrwPerGram > 0)) {
-    previousDomesticKrwPerGram =
-      changePercent === -100 ? domesticKrwPerGram : domesticKrwPerGram / (1 + changePercent / 100);
-  }
+  const changePercent =
+    previousDomesticKrwPerGram !== 0
+      ? ((domesticKrwPerGram - previousDomesticKrwPerGram) / previousDomesticKrwPerGram) * 100
+      : 0;
 
   return {
     domesticKrwPerGram,
     changePercent,
     previousDomesticKrwPerGram,
-    updatedAt: toIsoFromKst(data.meta?.updated_at_kst),
+    updatedAt: toIsoFromKst(data.updated),
   };
 }
 
