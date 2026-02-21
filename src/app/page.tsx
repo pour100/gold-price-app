@@ -358,7 +358,7 @@ export default function Home() {
         )}
 
         <footer className={styles.footer}>
-          <span>Source: Yahoo Finance (GC=F, KRW=X)</span>
+          <span>Source: {spot?.source ?? "Domestic: Naver Finance Gold (KRX). Global: Yahoo Finance (GC=F, KRW=X)."}</span>
           <span>모바일 최적화 UI</span>
         </footer>
       </main>
